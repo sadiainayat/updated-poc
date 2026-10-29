@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Capture application &mdash; Allied Bank</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow" id="caseRef">Case &mdash;</div>
+  <h1>Capture application</h1>
+  <div class="progress" id="progress"></div>
+  <div class="sub" id="stepLabel" style="margin-top:10px;font-weight:600;color:var(--primary)"></div>
+
+  <div style="margin-top:20px;flex:1" id="stepArea"></div>
+
+  <div class="btn-row" style="margin-top:20px">
+    <button class="btn btn-outline" id="backBtn">Back</button>
+    <button class="btn btn-dark" id="nextBtn" style="flex:1">Next</button>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+const caseId = qs('case');
+let step = 1;
+let caseData = null;
+
+const STEP_LABELS = ['Who', 'Identity', 'Business & outlet', 'Products', 'Review'];
+
+async function load() {
+  caseData = await api('GET', `/api/cases/${caseId}`);
+  document.getElementById('caseRef').textContent = `Case ${caseData.reference} · ${caseData.channel}`;
+  render();
+}
+
+function hasUnresolvedNameMismatch() {
+  return caseData.cnic_scanned
+    && caseData.name_match_score != null
+    && caseData.name_match_score < 0.6
+    && !caseData.name_override;
+}
+
+function renderProgress() {
+  const el = document.getElementById('progress');
+  el.innerHTML = '';
+  for (let i = 1; i <= 5; i++) {
+    const d = document.createElement('div');
+    if (i < step) d.className = 'done'; else if (i === step) d.className = 'current';
+    el.appendChild(d);
+  }
+  document.getElementById('stepLabel').textContent = `Step ${step} of 5 — ${STEP_LABELS[step - 1]}`;
+  document.getElementById('backBtn').disabled = step === 1;
+  document.getElementById('nextBtn').textContent = step === 5 ? 'Submit case' : 'Next';
+  const blocked = step === 2 && hasUnresolvedNameMismatch();
+  document.getElementById('nextBtn').disabled = blocked;
+  document.getElementById('nextBtn').title = blocked ? 'Resolve the name mismatch below before continuing.' : '';
+}
+
+function render() {
+  renderProgress();
+  const area = document.getElementById('stepArea');
+  if (step === 1) {
+    area.innerHTML = `
+      <label class="field"><span>Merchant / owner name</span>
+        <input id="owner_name" value="${caseData.declared_name || ''}" placeholder="e.g. Muhammad Imran Tariq"></label>
+      <div class="sub" style="margin-top:-8px;margin-bottom:12px">This gets checked against the name on the CNIC in the next step.</div>
+      <label class="field"><span>Phone number</span>
+        <input id="phone" value="${caseData.phone || ''}" placeholder="0300-1234567"></label>
+    `;
+  } else if (step === 2) {
+    if (!caseData.cnic_scanned) {
+      area.innerHTML = `
+        <div class="card" style="padding:28px 24px;border-style:dashed">
+          <div class="sub" style="margin-bottom:16px">Upload a photo of the CNIC — front required, back optional (for the address). A real multimodal model (Amazon Bedrock) reads the fields for you to confirm.</div>
+          <label class="field"><span>CNIC — front</span><input type="file" id="cnicFront" accept="image/*"></label>
+          <label class="field"><span>CNIC — back (optional)</span><input type="file" id="cnicBack" accept="image/*"></label>
+          <button class="btn btn-primary" id="scanBtn" style="width:100%">Extract fields</button>
+          <div class="sub" id="scanStatus" style="margin-top:10px"></div>
+        </div>`;
+      setTimeout(() => {
+        document.getElementById('scanBtn').onclick = async () => {
+          const frontFile = document.getElementById('cnicFront').files[0];
+          const backFile = document.getElementById('cnicBack').files[0];
+          if (!frontFile) { alert('Please choose a front-image file.'); return; }
+          const statusEl = document.getElementById('scanStatus');
+          const btn = document.getElementById('scanBtn');
+          btn.disabled = true;
+          statusEl.textContent = 'Reading the card… this calls a real Bedrock model, so it can take a few seconds.';
+          try {
+            const [frontBase64, backBase64] = await Promise.all([
+              fileToDataUrl(frontFile),
+              backFile ? fileToDataUrl(backFile) : Promise.resolve(null)
+            ]);
+            const res = await api('POST', `/api/cases/${caseId}/cnic-scan`, { frontBase64, backBase64 });
+            caseData = res;
+            if (res.ocrSource === 'stub-fallback') {
+              alert(`Bedrock call failed, showing a sample reading instead.\n\n${res.ocrError || ''}`);
+            }
+            render();
+          } catch (e) {
+            btn.disabled = false;
+            statusEl.textContent = '';
+            alert(e.message);
+          }
+        };
+      });
+    } else {
+      const mismatch = hasUnresolvedNameMismatch();
+      const scorePct = caseData.name_match_score != null ? Math.round(caseData.name_match_score * 100) : null;
+      area.innerHTML = `
+        <div class="sub" style="color:var(--success);font-weight:600;margin-bottom:10px">&#10003; Read from CNIC photo &mdash; confirm each field</div>
+        <div class="card">
+          <div class="summary-line"><span>Name (CNIC)</span><span>${caseData.owner_name}</span></div>
+          <div class="summary-line"><span>CNIC number</span><span>${caseData.cnic_number}</span></div>
+          <div class="summary-line"><span>Date of birth</span><span>${caseData.cnic_dob}</span></div>
+          <div class="summary-line"><span>Father's name</span><span>${caseData.cnic_father_name}</span></div>
+          <div class="banner-amber" style="margin-top:10px">
+            <div style="font-size:16px;font-weight:700;color:var(--warning)">&#9888; ${caseData.cnic_address_confidence === 'low' ? 'Low confidence — please confirm' : 'Confirm'}</div>
+            <div style="font-size:18px;margin-top:2px">${caseData.cnic_address || '(no address read — upload the back of the card for this)'}</div>
+          </div>
+        </div>
+        ${caseData.declared_name ? `
+          <div class="${mismatch ? '' : 'card'}" style="margin-top:14px;${mismatch ? 'background:var(--danger-soft);border:1px solid oklch(0.55 0.2 27 / 0.3);border-radius:10px;padding:16px' : ''}">
+            ${mismatch ? `
+              <div style="font-weight:700;color:var(--danger);margin-bottom:6px">&#10060; Name doesn’t match the CNIC</div>
+              <div class="summary-line"><span>You entered</span><span>${caseData.declared_name}</span></div>
+              <div class="summary-line"><span>CNIC reads</span><span>${caseData.owner_name}</span></div>
+              <div class="sub" style="margin:8px 0 12px">Match score: ${scorePct}% — below the threshold. This could be a typo, the wrong card, or a different person entirely.</div>
+              <div class="btn-row">
+                <button class="btn btn-outline" id="fixNameBtn" style="flex:1">Go back and fix the name</button>
+                <button class="btn btn-outline" id="overrideBtn" style="flex:1;border-color:var(--danger);color:var(--danger)">Same person — confirm &amp; flag for review</button>
+              </div>
+            ` : `
+              <div class="summary-line"><span>Declared at intake</span><span>${caseData.declared_name}</span></div>
+              <div class="summary-line"><span>Match with CNIC</span><span style="color:var(--success)">${scorePct}% — OK</span></div>
+            `}
+          </div>
+        ` : ''}`;
+      if (mismatch) {
+        setTimeout(() => {
+          document.getElementById('fixNameBtn').onclick = () => { step = 1; render(); };
+          document.getElementById('overrideBtn').onclick = async () => {
+            caseData = await api('POST', `/api/cases/${caseId}/confirm-name-override`, {});
+            render();
+          };
+        });
+      }
+    }
+  } else if (step === 3) {
+    const showAssisted = caseData.channel === 'field-agent';
+    area.innerHTML = `
+      <label class="field"><span>Business name</span>
+        <input id="business_name" value="${caseData.business_name || ''}" placeholder="e.g. Imran Hosiery Store"></label>
+      <label class="field"><span>Business / outlet address</span>
+        <input id="business_address" value="${caseData.business_address || ''}" placeholder="Shop 14, Hall Road, Lahore"></label>
+      <label class="field"><span>Merchant category</span>
+        <input id="category" value="${caseData.category || ''}" placeholder="Retail — General Merchandise"></label>
+      ${showAssisted ? `
+        <div class="row card" style="margin-bottom:12px"><div>&#128205;</div><div class="sub">GPS will be captured at the shop (assisted channel only)</div></div>
+        <div class="row card"><div>&#128247;</div><div class="sub">Shop front photo will be attached (assisted channel only)</div></div>
+      ` : ''}
+    `;
+  } else if (step === 4) {
+    const products = caseData.products || [];
+    const defs = [
+      ['Raast QR', 'Raast QR (static / dynamic)'],
+      ['Soundbox', 'Soundbox'],
+      ['Android POS', 'Android POS'],
+      ['SoftPOS', 'SoftPOS'],
+      ['E-commerce gateway', 'E-commerce gateway']
+    ];
+    area.innerHTML = `
+      <div class="sub" style="margin-bottom:12px">Select the products this case is requesting.</div>
+      ${defs.map(([val, label]) => `
+        <label class="row card" style="margin-bottom:10px">
+          <input type="checkbox" data-product="${val}" ${products.includes(val) ? 'checked' : ''} style="width:auto">
+          <span style="font-weight:600">${label}</span>
+        </label>`).join('')}
+      <div id="badge" class="banner-amber" style="margin-top:6px"></div>
+    `;
+    const refreshBadge = async () => {
+      const boxes = [...area.querySelectorAll('input[data-product]')];
+      const selected = boxes.filter((b) => b.checked).map((b) => b.dataset.product);
+      const res = await api('PATCH', `/api/cases/${caseId}/products`, { products: selected });
+      caseData = res;
+      const badge = document.getElementById('badge');
+      const p = res.eligibilityPreview;
+      if (!p || selected.length === 0) {
+        badge.className = 'banner-amber';
+        badge.textContent = 'Select at least one product.';
+      } else if (p.straightThrough) {
+        badge.className = 'banner-green';
+        badge.textContent = 'Eligible for same-day activation — micro, existing customer, QR/soundbox only.';
+      } else {
+        badge.className = 'banner-amber';
+        badge.textContent = `Will go to the ops queue for review — ${p.reason}`;
+      }
+    };
+    setTimeout(() => {
+      area.querySelectorAll('input[data-product]').forEach((b) => b.addEventListener('change', refreshBadge));
+      refreshBadge();
+    });
+  } else if (step === 5) {
+    const products = (caseData.products || []).join(', ') || 'None selected';
+    const namesDiffer = caseData.declared_name && caseData.name_match_score != null && caseData.name_match_score < 0.6;
+    area.innerHTML = `
+      <div class="sub" style="margin-bottom:12px">Review before submitting. Nothing is final until this is confirmed.</div>
+      <div class="card">
+        <div class="summary-line"><span>Merchant</span><span>${caseData.owner_name || ''}</span></div>
+        <div class="summary-line"><span>CNIC</span><span>${caseData.cnic_number || ''}</span></div>
+        <div class="summary-line"><span>Business</span><span>${caseData.business_name || ''}</span></div>
+        <div class="summary-line"><span>Address</span><span>${caseData.business_address || ''}</span></div>
+        <div class="summary-line"><span>Products</span><span>${products}</span></div>
+        <div class="summary-line"><span>Tier</span><span>${caseData.tier} · ${caseData.existing_customer ? 'existing Allied customer' : 'new to bank'}</span></div>
+      </div>
+      ${namesDiffer ? `
+        <div class="banner-amber" style="margin-top:14px">
+          <div style="font-weight:700;color:var(--warning)">Name mismatch acknowledged</div>
+          <div class="sub" style="margin-top:4px">Declared as "${caseData.declared_name}", CNIC reads "${caseData.owner_name}" — flagged, and will go to manual review regardless of other checks.</div>
+        </div>
+      ` : ''}
+    `;
+  }
+}
+
+document.getElementById('backBtn').addEventListener('click', () => {
+  if (step > 1) { step -= 1; render(); }
+});
+
+document.getElementById('nextBtn').addEventListener('click', async () => {
+  if (step === 1) {
+    caseData = await api('PATCH', `/api/cases/${caseId}/who`, {
+      owner_name: document.getElementById('owner_name').value,
+      phone: document.getElementById('phone').value
+    });
+  } else if (step === 3) {
+    caseData = await api('PATCH', `/api/cases/${caseId}/business`, {
+      business_name: document.getElementById('business_name').value,
+      business_address: document.getElementById('business_address').value,
+      category: document.getElementById('category').value
+    });
+  } else if (step === 5) {
+    await api('POST', `/api/cases/${caseId}/submit`, {});
+    goTo('checks.html', caseId);
+    return;
+  }
+  step = Math.min(5, step + 1);
+  render();
+});
+
+load();
+</script>
+</body>
+</html>

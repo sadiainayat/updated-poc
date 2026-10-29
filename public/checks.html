@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Verification checks &mdash; Allied Bank</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow" id="caseRef">Case &mdash;</div>
+  <h1>Verification checks</h1>
+  <div class="sub">Seven checks run against the case before routing.</div>
+
+  <div id="area" style="margin-top:24px;flex:1"></div>
+</div>
+<script src="app.js"></script>
+<script>
+const caseId = qs('case');
+let caseData = null;
+
+async function load() {
+  caseData = await api('GET', `/api/cases/${caseId}`);
+  document.getElementById('caseRef').textContent = `Case ${caseData.reference}`;
+  if (caseData.checks && caseData.checks.length) {
+    renderResults(caseData.checks.map((c) => ({ ...c, passed: !['Hit — needs review','Duplicate found','Inactive','Manual review','Could not verify','No ATL record','Mismatch','Override confirmed'].includes(c.status) })), caseData);
+  } else {
+    renderRunButton();
+  }
+}
+
+function renderRunButton() {
+  document.getElementById('area').innerHTML = `
+    <div class="card center" style="padding:40px 20px">
+      <button class="btn btn-primary" id="runBtn">Run checks</button>
+      <div class="sub" style="margin-top:14px">Name consistency, FBR and the duplicate check are real logic; the other four are simulated for this walkthrough. FBR represents your real weekly Active Taxpayer List pull.</div>
+    </div>`;
+  document.getElementById('runBtn').addEventListener('click', async () => {
+    const res = await api('POST', `/api/cases/${caseId}/run-checks`, {});
+    caseData = res.case;
+    renderResults(res.checks, res.routing);
+  });
+}
+
+function renderResults(checks, routingOrCase) {
+  const straightThrough = caseData.status === 'activated';
+  const rows = checks.map((c) => `
+    <div class="card check-row">
+      <div>
+        <div class="name">${c.name}</div>
+        <div class="mode">${c.mode === 'real' ? 'Real' : 'Simulated'} — ${c.message || ''}</div>
+        <div class="ref">${c.reference || ''}</div>
+      </div>
+      <div class="pill ${c.passed ? 'pill-green' : (c.status.includes('review') || c.status === 'Not required' || c.status === 'Override confirmed' ? 'pill-amber' : 'pill-red')}">${c.status}</div>
+    </div>`).join('');
+
+  const banner = straightThrough
+    ? `<div class="banner-green"><div style="font-weight:700;color:var(--success)">&#10003; Straight-through eligible</div>
+         <div class="sub" style="margin-top:4px">Micro tier, existing Allied customer, QR/soundbox only, all checks passed.</div></div>
+       <a class="btn btn-dark center" style="display:block;margin-top:14px" href="activated.html?case=${caseId}">Continue to activation</a>`
+    : `<div class="banner-amber"><div style="font-weight:700;color:var(--warning)">Routed to the ops queue</div>
+         <div class="sub" style="margin-top:4px">${caseData.queue_reason || ''}</div></div>
+       <a class="btn btn-dark center" style="display:block;margin-top:14px" href="queue.html?case=${caseId}">Go to the ops queue</a>`;
+
+  document.getElementById('area').innerHTML = rows + banner;
+}
+
+load();
+</script>
+</body>
+</html>

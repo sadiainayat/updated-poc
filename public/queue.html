@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ops review queue &mdash; Allied Bank</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap wide">
+  <div class="eyebrow">Maker-checker</div>
+  <h1>Ops review queue</h1>
+  <div class="sub">Cases that didn't qualify for straight-through activation.</div>
+
+  <div class="queue-layout" style="margin-top:28px">
+    <div class="queue-list" id="list"></div>
+    <div class="queue-detail" id="detail"></div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+let cases = [];
+let selectedId = qs('case');
+
+function riskColor(r) {
+  return (r || '').startsWith('High') ? 'var(--danger)' : (r || '').startsWith('Medium') ? 'var(--warning)' : 'var(--success)';
+}
+
+async function loadList() {
+  cases = await api('GET', '/api/queue');
+  if (!selectedId || !cases.find((c) => c.id === selectedId)) {
+    selectedId = cases.length ? cases[0].id : null;
+  }
+  renderList();
+  renderDetail();
+}
+
+function renderList() {
+  const el = document.getElementById('list');
+  if (!cases.length) {
+    el.innerHTML = '<div class="sub">Nothing in the queue right now.</div>';
+    return;
+  }
+  el.innerHTML = cases.map((c) => `
+    <div class="queue-item ${c.id === selectedId ? 'selected' : ''}" data-id="${c.id}">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div style="font-weight:700">${c.business_name || c.owner_name || 'Unnamed case'}</div>
+      </div>
+      <div class="sub" style="margin-top:4px">${(c.products || []).join(', ')}</div>
+      <div style="margin-top:6px;font-size:15px;font-weight:700;color:${riskColor(c.risk_band)}">${c.risk_band || ''}</div>
+    </div>`).join('');
+  el.querySelectorAll('.queue-item').forEach((row) => {
+    row.addEventListener('click', () => { selectedId = row.dataset.id; renderList(); renderDetail(); });
+  });
+}
+
+function renderDetail() {
+  const el = document.getElementById('detail');
+  const c = cases.find((x) => x.id === selectedId);
+  if (!c) { el.innerHTML = '<div class="sub">Select a case from the list.</div>'; return; }
+  el.innerHTML = `
+    <div class="eyebrow">Case detail</div>
+    <h2 style="margin:6px 0 18px">${c.business_name || c.owner_name}</h2>
+    <div class="grid2">
+      <div class="stat-box"><div class="label">Tier</div><div class="value">${c.tier}</div></div>
+      <div class="stat-box"><div class="label">Products</div><div class="value">${(c.products || []).join(', ')}</div></div>
+      <div class="stat-box"><div class="label">Risk band</div><div class="value" style="color:${riskColor(c.risk_band)}">${c.risk_band || ''}</div></div>
+      <div class="stat-box"><div class="label">Captured by</div><div class="value">${c.channel}</div></div>
+    </div>
+    <div class="banner-amber" style="margin-bottom:20px">
+      <div style="font-weight:700;color:var(--warning);font-size:16px">Why this is queued</div>
+      <div style="margin-top:4px">${c.queue_reason || ''}</div>
+    </div>
+    <label class="field"><span>Decision note</span>
+      <textarea id="note" placeholder="Optional note for the record..." style="min-height:70px"></textarea>
+    </label>
+    <div class="btn-row" style="flex-wrap:wrap">
+      <button class="btn btn-dark" style="flex:1;min-width:140px" data-decision="approve">Approve</button>
+      <button class="btn btn-outline" style="flex:1;min-width:140px;border-color:var(--success);color:var(--success)" data-decision="approve_limits">Approve with limits</button>
+      <button class="btn btn-outline" style="flex:1;min-width:140px;border-color:var(--warning);color:var(--warning)" data-decision="query">Query</button>
+      <button class="btn btn-outline" style="flex:1;min-width:140px;border-color:var(--danger);color:var(--danger)" data-decision="decline">Decline</button>
+    </div>
+  `;
+  el.querySelectorAll('[data-decision]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const note = document.getElementById('note').value;
+      await api('POST', `/api/cases/${c.id}/decision`, { decision: btn.dataset.decision, note });
+      selectedId = null;
+      loadList();
+    });
+  });
+}
+
+loadList();
+</script>
+</body>
+</html>

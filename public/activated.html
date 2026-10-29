@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Merchant activated &mdash; Allied Bank</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap narrow center">
+  <div style="width:64px;height:64px;border-radius:50%;background:var(--success-soft);display:flex;align-items:center;justify-content:center;font-size:36px;color:var(--success);margin:0 auto">&#10003;</div>
+  <h1>Case activated</h1>
+  <div class="sub">No further review needed &mdash; straight-through path.</div>
+
+  <div class="card" style="margin-top:24px;text-align:left" id="summary"></div>
+
+  <div class="qr-sample" style="margin:24px auto 8px"></div>
+  <div class="sub">Sample QR &mdash; illustrative only</div>
+
+  <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px;padding-top:24px">
+    <a class="btn btn-primary" id="trackLink" href="#">Track this case &rarr;</a>
+    <a class="sub" style="color:var(--primary);font-weight:600" href="index.html">Start a new case</a>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+const caseId = qs('case');
+async function load() {
+  const c = await api('GET', `/api/cases/${caseId}`);
+  document.getElementById('summary').innerHTML = `
+    <div class="summary-line"><span>Reference</span><span>${c.reference}</span></div>
+    <div class="summary-line"><span>Merchant</span><span>${c.business_name || c.owner_name || ''}</span></div>
+    <div class="summary-line"><span>Product issued</span><span>${(c.products || [])[0] || ''}</span></div>
+    <div class="summary-line"><span>Settlement</span><span>Allied account &middot;0241</span></div>
+  `;
+  document.getElementById('trackLink').href = `tracking.html?case=${caseId}`;
+}
+load();
+</script>
+</body>
+</html>

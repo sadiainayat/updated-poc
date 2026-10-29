@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Start a merchant application — Allied Bank</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Digital merchant onboarding</div>
+  <h1>Start a new application</h1>
+  <div class="sub" style="margin-top:8px">One case, three ways in. Choose how this merchant application is being captured.</div>
+
+  <div style="margin-top:24px">
+    <a class="card option-card" href="#" onclick="start('self-service');return false;">
+      <div class="title">Self-Service</div>
+      <div class="sub">Merchant applies from their own phone or computer.</div>
+    </a>
+    <a class="card option-card" href="#" onclick="start('field-agent');return false;">
+      <div class="title">Field Agent (Assisted)</div>
+      <div class="sub">Relationship manager captures the case at the shop, with photo and location.</div>
+    </a>
+    <a class="card option-card" href="#" onclick="start('branch');return false;">
+      <div class="title">Branch</div>
+      <div class="sub">Case started in person at a branch counter.</div>
+    </a>
+  </div>
+
+  <div class="footnote">
+    Real backend (Node.js + SQLite). FBR check runs against real lookup logic over sample ATL data.
+    The other five checks and CNIC OCR are stubbed for this POC.
+    &nbsp;&middot;&nbsp; <a href="queue.html" style="color:var(--primary);font-weight:600">Go straight to the ops queue &rarr;</a>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+async function start(channel) {
+  try {
+    const created = await api('POST', '/api/cases', { channel });
+    goTo('capture.html', created.id);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+</script>
+</body>
+</html>

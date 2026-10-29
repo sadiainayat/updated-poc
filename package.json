@@ -1,0 +1,16 @@
+{
+  "name": "merchant-onboarding-poc",
+  "version": "1.0.0",
+  "description": "Working POC for Allied Bank digital merchant onboarding — AI-assisted capture, checks, routing, ops queue and tracking.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1158.0",
+    "express": "^4.19.2"
+  }
+}
